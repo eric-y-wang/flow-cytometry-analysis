@@ -16,9 +16,10 @@ output:
 
 <!--
 TEMPLATE USAGE
-  Copy this file into the project root as flow_cytometry_analysis.Rmd, then adapt:
+  Copy this file into the project root as flow_cytometry_analysis_<<EXPERIMENT>>.Rmd, then adapt:
     1. Set root.dir below to the project directory.
-    2. Fill the USER PARAMETERS block.
+    2. Fill the USER PARAMETERS block (set EXPERIMENT first — it is appended to
+       every output: plot PDFs, processed CSVs, and the report title).
     3. Wire real column names / regexes into the reshape chunks
        (see references/flowjo-csv-format.md).
     4. Duplicate the analysis section once per measurement family
@@ -48,6 +49,8 @@ library(kableExtra)
 # Use tidyplots' default theme — do NOT source plotting_fxns.R / theme_Publication().
 
 # ── USER PARAMETERS ─────────────────────────────────────────────────────────────
+EXPERIMENT <- "<<experiment_slug>>"  # filename-safe label appended to ALL outputs
+                                     # (plot PDFs, processed CSVs, report title)
 CTRL_LEVEL <- "<<none>>"          # control level for fold-change (e.g. "none", "DMSO")
 X_VAR      <- "<<cytokine>>"      # x-axis factor (metadata column name)
 COLOR_VAR  <- "<<treatment>>"    # comparison / color factor (metadata column name)
@@ -63,12 +66,14 @@ COLORS <- c(<<VLP = "#1b9e77", recomb = "#d95f02">>)  # named per COLOR_LEVELS
 # Every plot is written to PLOT_DIR as a PDF *and* shown in the report. Piping a
 # finished plot through save_and_show() saves it at the physical size set by
 # adjust_size() (tidyplots::save_plot honours that), then returns it so knitr still
-# embeds it in the HTML. Give each plot a short, unique, filename-safe name.
+# embeds it in the HTML. Give each plot a short, unique, filename-safe name; the
+# EXPERIMENT slug is appended automatically so analyses never overwrite each other.
 PLOT_DIR <- "plots"
 dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 save_and_show <- function(p, name) {
-  tidyplots::save_plot(p, file.path(PLOT_DIR, paste0(name, ".pdf")))
+  fname <- paste0(name, "__", EXPERIMENT, ".pdf")
+  tidyplots::save_plot(p, file.path(PLOT_DIR, fname))
   p
 }
 ```
@@ -157,7 +162,7 @@ df_long <- df_long %>%
 ```
 
 ```{r write-processed, include=FALSE}
-df_long %>% write_csv("tables/<<measurements>>_processed.csv")
+df_long %>% write_csv(paste0("tables/<<measurements>>_processed__", EXPERIMENT, ".csv"))
 ```
 
 ## 2.6 Summaries

@@ -50,6 +50,7 @@ you only need the column names plus a few example rows to recognize the format.
 These are the configurable axes. They determine the entire analysis, and the same FlowJo
 export can be sliced many ways — so never guess them silently. Capture:
 
+- **experiment name** — a short, filename-safe label for this analysis (e.g. `il2_dose_response`, `2026-06-05_pSTAT`). **Always ask the user for this** — do not guess it — even if they supplied every other parameter. It is appended to every output the skill produces (the `.Rmd`, the HTML report, every plot PDF, and the processed CSVs) so multiple analyses can coexist in one project without overwriting each other. Sanitize the user's answer to a filename-safe slug (lowercase, spaces/special chars → `_`) and store it as `EXPERIMENT`.
 - **x-axis factor** — the experimental variable along the x-axis (e.g. cytokine, condition, timepoint).
 - **comparison / color factor** — what distinguishes the colored bars/groups (e.g. treatment, cytokine source, genotype).
 - **faceting variable** — usually the marker/analyte; each panel is one marker.
@@ -58,9 +59,10 @@ export can be sliced many ways — so never guess them silently. Capture:
 - **plot geometry** — bar of group means (default) or violin/box for distributions.
 
 **If the user supplied these (in their request or earlier in the conversation), restate your
-reading of all six and proceed.** Otherwise — for any of the six the user did **not**
+reading of all of them and proceed.** Otherwise — for any the user did **not**
 specify — you must ask rather than assume; a wrong x-axis or control level silently produces
-a plausible-looking but wrong report.
+a plausible-looking but wrong report. The **experiment name** is the one parameter you must
+always ask for explicitly, since it cannot be inferred from the data.
 
 Ask with the `AskUserQuestion` tool so the user can pick rather than type. Make answering
 easy by pre-filling realistic options inferred from the data: read the `metadata.csv` column
@@ -68,8 +70,10 @@ names and their distinct values (from step 1) and offer those as the candidate f
 levels. For example, if `metadata.csv` has a `treatment` column with values `DMSO`/`drugA`,
 offer `treatment` as a candidate comparison factor and `DMSO` as a candidate control level.
 Group the open questions into one `AskUserQuestion` call (it allows up to four) rather than
-asking one at a time. Only the parameters the user left unspecified need to be asked; don't
-re-ask what they already gave you. Once answered, restate the final six and proceed to step 3.
+asking one at a time. Only the parameters the user left unspecified need to be asked (the
+experiment name always being one of them); don't re-ask what they already gave you. Once
+answered, restate the final parameter set — including the experiment name — and proceed to
+step 3.
 
 ### 3. Map the measurement columns
 
@@ -81,12 +85,15 @@ keep only the real row per sample.
 
 ### 4. Copy and adapt the template
 
-Copy `assets/flow_analysis_template.Rmd` to the project root (name it
-`flow_cytometry_analysis.Rmd`). Then:
+Copy `assets/flow_analysis_template.Rmd` to the project root, naming it with the experiment
+slug: `flow_cytometry_analysis_<EXPERIMENT>.Rmd`. Then:
 
 - Set `root.dir` in the setup chunk to the project directory.
-- Fill the `USER PARAMETERS` block from step 2 (control level, x/color/facet vars, level
-  orderings, colors, geometry).
+- Set `EXPERIMENT` in the `USER PARAMETERS` block to the filename-safe experiment slug from
+  step 2. It feeds `save_and_show()` (plot PDFs land in `plots/<name>__<EXPERIMENT>.pdf`),
+  the processed-CSV filenames, and the report title.
+- Fill the rest of the `USER PARAMETERS` block from step 2 (control level, x/color/facet vars,
+  level orderings, colors, geometry).
 - Wire the exact column names and parsing regexes from step 3 into the reshape chunks.
 - Add one analysis section per measurement family (one for each CSV / metric type), keeping
   the numbered-section structure and the `{.tabset}` split for raw / fold-change / log2FC.
@@ -104,9 +111,12 @@ exported to `plots/` as a PDF (at the `adjust_size()` dimensions) *and* embedded
 
 ### 6. Write outputs and tell the user how to knit
 
-Emit long-format processed CSVs (`*_processed.csv`) from a hidden chunk so the wrangled data
-is inspectable. Knitting also writes every figure to a `plots/` directory as a PDF via the
-`save_and_show()` helper (created automatically in the setup chunk), so the user gets
-publication-ready vector files alongside the HTML. Then tell the user how to render, e.g.
-`rmarkdown::render("flow_cytometry_analysis.Rmd")`. If you can't run R in this environment,
-say so and leave the knit to the user.
+Emit long-format processed CSVs (`<measurements>_processed__<EXPERIMENT>.csv`) from a hidden
+chunk so the wrangled data is inspectable. Knitting also writes every figure to a `plots/`
+directory as a PDF via the `save_and_show()` helper (created automatically in the setup
+chunk), with the experiment slug appended to each filename, so the user gets
+publication-ready vector files alongside the HTML. Every output — the `.Rmd`, the rendered
+HTML, the plot PDFs, and the processed CSVs — carries the experiment name, so reruns with a
+different name never clobber a previous analysis. Then tell the user how to render, e.g.
+`rmarkdown::render("flow_cytometry_analysis_<EXPERIMENT>.Rmd")`. If you can't run R in this
+environment, say so and leave the knit to the user.
