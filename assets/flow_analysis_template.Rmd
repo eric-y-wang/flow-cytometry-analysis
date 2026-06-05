@@ -1,0 +1,247 @@
+---
+title: "Flow Cytometry Analysis: <<TITLE>>"
+author: "Claude + EYW"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    theme: flatly
+    highlight: default
+    code_folding: hide
+    fig_width: 14
+    fig_height: 6
+---
+
+<!--
+TEMPLATE USAGE
+  Copy this file into the project root as flow_cytometry_analysis.Rmd, then adapt:
+    1. Set root.dir below to the project directory.
+    2. Fill the USER PARAMETERS block.
+    3. Wire real column names / regexes into the reshape chunks
+       (see references/flowjo-csv-format.md).
+    4. Duplicate the analysis section once per measurement family
+       (see references/plotting-patterns.md).
+  Replace every <<PLACEHOLDER>>. Delete sections you don't need (e.g. QC).
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = '<<ABSOLUTE/PROJECT/PATH/>>')
+```
+
+# Overview
+
+<<One paragraph: what is being compared, which markers/analytes, how fold-change is defined
+(per replicate vs the control level).>>
+
+---
+
+# 1 · Setup
+
+```{r libraries}
+library(tidyverse)
+library(tidyplots)
+library(knitr)
+library(kableExtra)
+# Use tidyplots' default theme — do NOT source plotting_fxns.R / theme_Publication().
+
+# ── USER PARAMETERS ─────────────────────────────────────────────────────────────
+CTRL_LEVEL <- "<<none>>"          # control level for fold-change (e.g. "none", "DMSO")
+X_VAR      <- "<<cytokine>>"      # x-axis factor (metadata column name)
+COLOR_VAR  <- "<<treatment>>"    # comparison / color factor (metadata column name)
+FACET_VAR  <- "<<marker>>"       # faceting variable (the analyte; created during reshape)
+
+X_LEVELS     <- c(<<"IL2","IL4",...,"none">>)   # x-axis order; put CTRL_LEVEL where it belongs
+COLOR_LEVELS <- c(<<"VLP","recomb">>)            # comparison order
+GEOMETRY     <- "bar"                            # "bar" (means) | "violin" | "box"
+
+COLORS <- c(<<VLP = "#1b9e77", recomb = "#d95f02">>)  # named per COLOR_LEVELS
+
+# ── PDF export ────────────────────────────────────────────────────────────────
+# Every plot is written to PLOT_DIR as a PDF *and* shown in the report. Piping a
+# finished plot through save_and_show() saves it at the physical size set by
+# adjust_size() (tidyplots::save_plot honours that), then returns it so knitr still
+# embeds it in the HTML. Give each plot a short, unique, filename-safe name.
+PLOT_DIR <- "plots"
+dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
+
+save_and_show <- function(p, name) {
+  tidyplots::save_plot(p, file.path(PLOT_DIR, paste0(name, ".pdf")))
+  p
+}
+```
+
+---
+
+# 2 · Data Loading & Wrangling
+
+## 2.1 Load raw files
+
+```{r load}
+metadata_raw <- read_csv("tables/metadata.csv", show_col_types = FALSE)
+# One read_csv per measurement CSV:
+meas_raw     <- read_csv("tables/<<measurements>>.csv", show_col_types = FALSE)
+```
+
+## 2.2 Derive constants & colors
+
+```{r derive-constants}
+# Auto-fill colors for any comparison level not explicitly named above.
+new_lv <- setdiff(COLOR_LEVELS, names(COLORS))
+if (length(new_lv)) {
+  auto   <- setdiff(RColorBrewer::brewer.pal(8, "Set2"), unname(COLORS))
+  COLORS <- c(COLORS, setNames(auto[seq_along(new_lv)], new_lv))
+}
+cat("x-axis   :", paste(X_LEVELS,     collapse = ", "), "\n")
+cat("compare  :", paste(COLOR_LEVELS, collapse = ", "), "\n")
+```
+
+## 2.3 Clean metadata
+
+```{r clean-meta}
+metadata <- metadata_raw %>%
+  rename(plate = GROUPNAME, well = `$WELLID`) %>%
+  mutate(
+    replicate = as.integer(replicate),
+    !!X_VAR     := factor(.data[[X_VAR]],     levels = X_LEVELS),
+    !!COLOR_VAR := factor(.data[[COLOR_VAR]], levels = COLOR_LEVELS)
+    # cast any per-group analyte column to a factor here too.
+  )
+```
+
+## 2.4 Reshape measurements to long
+
+```{r reshape}
+# "n/a" channels must become NA before any numeric op (see flowjo-csv-format.md).
+parse_num <- function(x) as.numeric(na_if(as.character(x), "n/a"))
+
+# ── Pattern A: every column is a marker of the same family (e.g. all frequencies) ──
+df_long <- meas_raw %>%
+  rename(plate = GROUPNAME, well = `$WELLID`) %>%
+  select(-`Sample:`) %>%
+  pivot_longer(-c(plate, well), names_to = "col_name", values_to = "value",
+               values_transform = list(value = as.character)) %>%
+  mutate(
+    value  = parse_num(value),
+    marker = str_trim(str_extract(col_name, "<<(?<=/)([^/|]+)(?=\\s*\\| Freq)>>"))
+  ) %>%
+  filter(!is.na(marker)) %>%
+  inner_join(metadata, by = c("plate", "well"))
+
+# ── Pattern B: one analyte per group; pick the right value per row by metadata ──
+# Use case_when() on a metadata column (e.g. fluorophore) to select among stat columns,
+# OR inner_join on the analyte-naming metadata column. See flowjo-csv-format.md.
+
+df_long %>% count(marker) %>%
+  kbl(caption = "Row counts per marker") %>%
+  kable_styling(bootstrap_options = c("condensed", "hover"), full_width = FALSE)
+```
+
+## 2.5 Fold-change vs control
+
+```{r fold-change}
+# Key on everything EXCEPT the normalization axis (here, X_VAR holds CTRL_LEVEL).
+fc_keys  <- c("marker", COLOR_VAR, "replicate")
+
+baseline <- df_long %>%
+  filter(.data[[X_VAR]] == CTRL_LEVEL) %>%
+  select(all_of(fc_keys), baseline = value)
+
+df_long <- df_long %>%
+  left_join(baseline, by = fc_keys) %>%
+  mutate(fold_change = value / baseline,
+         log2FC      = log2(fold_change)) %>%
+  select(-baseline)
+```
+
+```{r write-processed, include=FALSE}
+df_long %>% write_csv("tables/<<measurements>>_processed.csv")
+```
+
+## 2.6 Summaries
+
+```{r summarise}
+sem <- function(x) sd(x, na.rm = TRUE) / sqrt(sum(!is.na(x)))
+
+summ <- df_long %>%
+  group_by(.data[[COLOR_VAR]], .data[[X_VAR]], marker) %>%
+  summarise(n = sum(!is.na(value)),
+            mean_v = mean(value, na.rm = TRUE), sem_v = sem(value),
+            mean_fc = mean(fold_change, na.rm = TRUE), sem_fc = sem(fold_change),
+            .groups = "drop")
+```
+
+---
+
+# 3 · <<Measurement family>> {.tabset}
+
+<!-- A small helper keeps the three subtabs DRY. Geometry is switched by GEOMETRY. -->
+
+```{r plot-helper}
+add_geometry <- function(p) {
+  if (GEOMETRY == "violin") p %>% add_violin() %>% add_data_points()
+  else if (GEOMETRY == "box") p %>% add_boxplot() %>% add_data_points()
+  else p %>% add_mean_bar(alpha = 0.7) %>% add_sd_errorbar() %>% add_data_points()
+}
+```
+
+## 3.1 Raw
+
+```{r raw, fig.height=4, fig.width=20}
+df_long %>%
+  tidyplot(x = .data[[X_VAR]], y = value, color = .data[[COLOR_VAR]]) %>%
+  add_geometry() %>%
+  adjust_colors(new_colors = COLORS) %>%
+  adjust_title("<<Metric>> — Raw") %>%
+  adjust_x_axis_title("<<x label>>") %>%
+  adjust_y_axis_title("<<value>> ± SD") %>%
+  split_plot(by = marker, ncol = <<N>>) %>%
+  adjust_size(width = 80, height = 40) %>%
+  save_and_show("<<metric>>_raw")
+```
+
+## 3.2 Fold change vs `r CTRL_LEVEL`
+
+```{r fc, fig.height=4, fig.width=20}
+df_long %>%
+  filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
+  tidyplot(x = .data[[X_VAR]], y = fold_change, color = .data[[COLOR_VAR]]) %>%
+  add_reference_lines(y = 1) %>%
+  add_geometry() %>%
+  adjust_colors(new_colors = COLORS) %>%
+  adjust_title("<<Metric>> — Fold change vs control") %>%
+  adjust_x_axis_title("<<x label>>") %>%
+  adjust_y_axis_title("Fold change ± SD") %>%
+  split_plot(by = marker, ncol = <<N>>) %>%
+  adjust_size(width = 80, height = 40) %>%
+  save_and_show("<<metric>>_fold_change")
+```
+
+## 3.3 log2 Fold change vs `r CTRL_LEVEL`
+
+```{r log2fc, fig.height=4, fig.width=20}
+df_long %>%
+  filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
+  tidyplot(x = .data[[X_VAR]], y = log2FC, color = .data[[COLOR_VAR]]) %>%
+  add_reference_lines(y = 0) %>%
+  add_geometry() %>%
+  adjust_colors(new_colors = COLORS) %>%
+  adjust_title("<<Metric>> — log2 fold change vs control") %>%
+  adjust_x_axis_title("<<x label>>") %>%
+  adjust_y_axis_title("log2(FC) ± SD") %>%
+  split_plot(by = marker, ncol = <<N>>) %>%
+  adjust_size(width = 80, height = 40) %>%
+  save_and_show("<<metric>>_log2FC")
+```
+
+<!-- Duplicate section 3 for each additional measurement family. -->
+
+---
+
+# 4 · Session Info
+
+```{r session}
+sessionInfo()
+```
