@@ -7,7 +7,7 @@ FlowJo-exported flow cytometry CSVs into a reproducible R Markdown / HTML report
 
 1. **Perform FlowJo analysis (gating, statistics, etc.)**
 2. **Create folder named tables in your analysis directory**
-3. **Export results tables to /tables:** Create a results table as you normally would to export data. Add the keywords $GROUPNAME and $WELLID to the results table. Save as a .csv file. 
+3. **Export results tables to /tables:** Create a results table as you normally would to export data. Add the keywords $GROUPNAME and $WELLID to the results table. Save as a .csv file. Generally as best practice include the type of measurement in the file name (e.g. mfi.csv or freq.csv) 
 4. **Create metadata table to /tables:** Once you have your results .csv files, copy and paste the GROUPNAME and WELLID columns into a new .csv. Fill in the metadata with appropriate information (treatment, cage, mouse, etc.). These variables will be ingested by Claude Code and used for plotting.
 5. **Perform skill with Claude:** Point Claude Code to your analysis directory and ask it to perform analysis with this skill. You can give information ahead of table on what comparisons you want to make and how you want things plotted. Otherwise, it will ask you for guidance while running the skill.
 
