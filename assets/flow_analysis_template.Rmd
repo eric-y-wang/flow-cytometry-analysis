@@ -73,7 +73,10 @@ dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 save_and_show <- function(p, name) {
   fname <- paste0(name, "__", EXPERIMENT, ".pdf")
-  tidyplots::save_plot(p, file.path(PLOT_DIR, fname))
+  # view_plot = FALSE: only write the PDF. save_plot() defaults to view_plot = TRUE,
+  # whose final print(input) draws the plot to the active device — knitr captures that
+  # AND auto-prints the returned p, embedding every figure in the HTML twice.
+  tidyplots::save_plot(p, file.path(PLOT_DIR, fname), view_plot = FALSE)
   p
 }
 ```
@@ -122,6 +125,15 @@ metadata <- metadata_raw %>%
 # "n/a" channels must become NA before any numeric op (see flowjo-csv-format.md).
 parse_num <- function(x) as.numeric(na_if(as.character(x), "n/a"))
 
+# Gating hierarchy from a FlowJo column header: the text before " | " is the
+# slash-delimited gate path; gate_level() pulls the nth population from the leaf end
+# (n = 1 = leaf), returning NA past the root. Capture parent / grandparent so the data
+# can be plotted against gating context (e.g. the "Freq. of Parent" denominator) later.
+# For a Freq column the leaf IS the population, so its parent is gate_level(.,2);
+# for an MFI column the leaf is the gate the stat sits on, so its parent is gate_level(.,1).
+extract_gate <- function(col) str_trim(str_extract(col, "^[^|]+"))
+gate_level   <- function(path, n) str_split_i(path, fixed("/"), -n)
+
 # ── Pattern A: every column is a marker of the same family (e.g. all frequencies) ──
 df_long <- meas_raw %>%
   rename(plate = GROUPNAME, well = `$WELLID`) %>%
@@ -129,8 +141,12 @@ df_long <- meas_raw %>%
   pivot_longer(-c(plate, well), names_to = "col_name", values_to = "value",
                values_transform = list(value = as.character)) %>%
   mutate(
-    value  = parse_num(value),
-    marker = str_trim(str_extract(col_name, "<<(?<=/)([^/|]+)(?=\\s*\\| Freq)>>"))
+    value       = parse_num(value),
+    marker      = str_trim(str_extract(col_name, "<<(?<=/)([^/|]+)(?=\\s*\\| Freq)>>")),
+    gate_path   = extract_gate(col_name),       # full gate path incl. the population leaf
+    population  = gate_level(gate_path, 1),      # the gated population (== marker for Freq)
+    parent      = gate_level(gate_path, 2),      # Freq. of Parent denominator
+    grandparent = gate_level(gate_path, 3)       # one level above the parent
   ) %>%
   filter(!is.na(marker)) %>%
   inner_join(metadata, by = c("plate", "well"))
@@ -138,6 +154,11 @@ df_long <- meas_raw %>%
 # ── Pattern B: one analyte per group; pick the right value per row by metadata ──
 # Use case_when() on a metadata column (e.g. fluorophore) to select among stat columns,
 # OR inner_join on the analyte-naming metadata column. See flowjo-csv-format.md.
+# For MFI columns the gate path has no population leaf, so capture hierarchy with:
+#   gate_path = extract_gate(<the stat column name>),
+#   parent = gate_level(gate_path, 1), grandparent = gate_level(gate_path, 2)
+# Keep gate_path / parent / grandparent in the final select() so they reach the
+# processed CSV and are available for parent/grandparent-population plots.
 
 df_long %>% count(marker) %>%
   kbl(caption = "Row counts per marker") %>%

@@ -54,7 +54,10 @@ PLOT_DIR <- "plots"
 dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 save_and_show <- function(p, name) {
-  tidyplots::save_plot(p, file.path(PLOT_DIR, paste0(name, ".pdf")))  # exact adjust_size dims
+  # view_plot = FALSE is essential: save_plot() defaults to TRUE and its final
+  # print(input) draws the plot to the active device, which knitr captures — then the
+  # returned p is auto-printed too, embedding every figure in the HTML twice.
+  tidyplots::save_plot(p, file.path(PLOT_DIR, paste0(name, ".pdf")), view_plot = FALSE)  # exact adjust_size dims
   p                                                                    # return so knitr embeds it
 }
 ```

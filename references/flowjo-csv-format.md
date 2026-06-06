@@ -48,6 +48,32 @@ When a single export mixes `Median` and `Geometric Mean` columns for different c
 (common — BV421 reported as Median, AF647 as Geometric Mean), select the value per row with
 `case_when()` on a metadata column (e.g. `fluorophore`) rather than trying one regex for all.
 
+## Capturing the gating hierarchy (parent / grandparent)
+
+Keep the full gate path and its ancestry alongside each marker so the processed CSV can later
+be plotted against gating context (e.g. comparing a population to its `Freq. of Parent`
+denominator). The text before `" | "` is the slash-delimited gate path; index it from the leaf
+end:
+
+```r
+extract_gate <- function(col) str_trim(str_extract(col, "^[^|]+"))
+gate_level   <- function(path, n) str_split_i(path, fixed("/"), -n)   # n = 1 is the leaf
+```
+
+The leaf differs by family, so the parent sits at a different depth:
+
+- **Frequency** (`Lymphocytes/Single Cells/pSTAT1+ | Freq. of Parent`) — the leaf *is* the
+  gated population. `population = gate_level(path, 1)` (`pSTAT1+`),
+  `parent = gate_level(path, 2)` (`Single Cells`, the freq denominator),
+  `grandparent = gate_level(path, 3)` (`Lymphocytes`).
+- **MFI** (`Lymphocytes/Single Cells | Median (mBaoJin)`) — the marker is in the parens and the
+  path is all ancestor gates. `parent = gate_level(path, 1)` (`Single Cells`, the gate the stat
+  is measured on), `grandparent = gate_level(path, 2)` (`Lymphocytes`).
+
+`str_split_i()` (stringr ≥ 1.5) returns `NA` past the root, so shallow gates are safe. Keep
+`gate_path` / `parent` / `grandparent` in the final `select()` so they survive into the
+processed CSV.
+
 ## The `"n/a"` gotcha
 
 Channels that weren't measured for a given group hold the **literal string `"n/a"`**, not an
