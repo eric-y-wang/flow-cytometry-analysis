@@ -34,9 +34,12 @@ df %>%
   adjust_x_axis_title("<x label>") %>%
   adjust_y_axis_title("<value> ± SD") %>%
   split_plot(by = <marker>, ncol = N) %>%
-  adjust_size(width = 80, height = 40) %>%
-  save_and_show("<metric>_raw")
+  adjust_size(width = 80, height = 40)
+save_plot(p, file.path(PLOT_DIR, paste0("<metric>_raw__", EXPERIMENT, ".pdf")), view_plot = FALSE)
+p
 ```
+
+(assign the chain to `p` first — see "Exporting every plot to PDF" below.)
 
 `adjust_size` units are millimetres per panel; pair with chunk-header `fig.width`/`fig.height`
 (inches) for the HTML layout — roughly `fig.width ≈ 4 × ncol`, `fig.height ≈ 4 × nrow`.
@@ -47,28 +50,33 @@ All plots are written to a `plots/` directory as PDFs in addition to appearing i
 This is deliberately not a knitr device trick (`dev = "pdf"` / `fig.path`), because those
 size the PDF from the chunk's `fig.width`/`fig.height` and ignore the physical size set by
 `adjust_size()` — which is the whole reason the chains end with `adjust_size()`. Instead,
-define one helper in the setup chunk and end every plot chain with it:
+create `PLOT_DIR` once in the setup chunk:
 
 ```r
 PLOT_DIR <- "plots"
 dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
-
-save_and_show <- function(p, name) {
-  # view_plot = FALSE is essential: save_plot() defaults to TRUE and its final
-  # print(input) draws the plot to the active device, which knitr captures — then the
-  # returned p is auto-printed too, embedding every figure in the HTML twice.
-  tidyplots::save_plot(p, file.path(PLOT_DIR, paste0(name, ".pdf")), view_plot = FALSE)  # exact adjust_size dims
-  p                                                                    # return so knitr embeds it
-}
 ```
 
+Then in each plot chunk, assign the finished chain to `p`, call `save_plot()` on it, and put
+`p` on its own line so knitr embeds it:
+
+```r
+p <- df %>% tidyplot(...) %>% ... %>% adjust_size(width = 80, height = 40)
+save_plot(p, file.path(PLOT_DIR, paste0("<name>__", EXPERIMENT, ".pdf")), view_plot = FALSE)
+p
+```
+
+`view_plot = FALSE` is essential: `save_plot()` defaults to `TRUE` and its final
+`print(input)` draws the plot to the active device, which knitr captures — then the returned
+`p` is auto-printed too, embedding every figure in the HTML **twice**.
+
 `tidyplots::save_plot()` honours the plot's stored dimensions (and handles `split_plot()`
-patchworks), so the PDF matches the on-screen figure. Because the helper returns `p`, the
-plot is still the chunk's value and knitr renders it into the report — one pipe step gives
-you both outputs. Pass a short, unique, filename-safe `name` per plot (e.g.
-`"pstat_mfi_raw"`, `"pstat_mfi_fold_change"`); these become the PDF filenames. `dir.create`
-runs against the knit working directory (the `root.dir` you set), so `plots/` lands in the
-project root.
+patchworks), so the PDF matches the on-screen figure. The trailing bare `p` is the chunk's
+value, so knitr renders it into the report — saving and showing in two lines. Pass a short,
+unique, filename-safe `name` per plot (e.g. `"pstat_mfi_raw"`, `"pstat_mfi_fold_change"`) and
+append the `EXPERIMENT` slug so analyses never overwrite each other; these become the PDF
+filenames. `dir.create` runs against the knit working directory (the `root.dir` you set), so
+`plots/` lands in the project root.
 
 ## Fold-change normalization
 
