@@ -62,6 +62,28 @@ GEOMETRY     <- "bar"                            # "bar" (means) | "violin" | "b
 
 COLORS <- c(<<VLP = "#1b9e77", recomb = "#d95f02">>)  # named per COLOR_LEVELS
 
+# ── Panel size & facet grid ───────────────────────────────────────────────────
+# One source of truth for plot size: PANEL_W/PANEL_H (mm) are fed to adjust_size()
+# (which sizes the PDF), and fig_dim() derives the knitr chunk fig.width/fig.height
+# (inches, which size the HTML figure) from the SAME panel dims and facet grid — so the
+# two never drift. Change a panel size, NCOL, or the number of markers and both the PDF
+# and the embedded HTML figure rescale together. Bump PANEL_W if x-axis bars look cramped;
+# raise width_scale in fig_dim() if the HTML figure itself looks squished (legend clipped).
+PANEL_W <- 60    # per-panel width  (mm) — fed to adjust_size()
+PANEL_H <- 40    # per-panel height (mm)
+NCOL    <- <<N>> # facet columns; rows are derived from the marker count
+
+fig_dim <- function(n_panels, ncol = NCOL, w_mm = PANEL_W, h_mm = PANEL_H,
+                    legend_in = 1.3, title_in = 0.6,
+                    width_scale = 1.25, height_scale = 1.25) {
+  nrow <- ceiling(n_panels / ncol)
+  # mm -> inches (/25.4); pad width for the color legend and height for the title.
+  # width_scale / height_scale give the chunk device extra room so the HTML figure isn't
+  # squished relative to the plot's true size (panels + legend + axis titles).
+  c(w = (ncol * w_mm / 25.4 + legend_in) * width_scale,
+    h = (nrow * h_mm / 25.4 + title_in) * height_scale)
+}
+
 # ── PDF export ────────────────────────────────────────────────────────────────
 # Every plot is written to PLOT_DIR as a PDF *and* shown in the report. In each plot
 # chunk: assign the finished plot to `p`, call save_plot() on it (which honours the
@@ -231,11 +253,15 @@ add_geometry <- function(p) {
   else if (GEOMETRY == "box") p %>% add_boxplot() %>% add_data_points()
   else p %>% add_mean_bar(alpha = 0.7) %>% add_sd_errorbar() %>% add_data_points()
 }
+
+# Figure dims for this family, derived from the marker count + NCOL. The plot chunks below
+# reference it in their headers (fig.width = DIM["w"], fig.height = DIM["h"]).
+DIM <- fig_dim(n_distinct(df_long$marker))
 ```
 
 ## 3.1 Raw
 
-```{r raw, fig.height=4, fig.width=20}
+```{r raw, fig.width=DIM["w"], fig.height=DIM["h"]}
 p <- df_long %>%
   tidyplot(x = .data[[X_VAR]], y = value, color = .data[[COLOR_VAR]]) %>%
   add_geometry() %>%
@@ -243,15 +269,15 @@ p <- df_long %>%
   adjust_title("<<Metric>> — Raw") %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("<<value>> ± SD") %>%
-  split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40)
+  split_plot(by = marker, ncol = NCOL) %>%
+  adjust_size(width = PANEL_W, height = PANEL_H)
 save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_raw__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 p
 ```
 
 ## 3.2 Fold change vs `r CTRL_LEVEL`
 
-```{r fc, fig.height=4, fig.width=20}
+```{r fc, fig.width=DIM["w"], fig.height=DIM["h"]}
 p <- df_long %>%
   filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
   tidyplot(x = .data[[X_VAR]], y = fold_change, color = .data[[COLOR_VAR]]) %>%
@@ -261,15 +287,15 @@ p <- df_long %>%
   adjust_title("<<Metric>> — Fold change vs control") %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("Fold change ± SD") %>%
-  split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40)
+  split_plot(by = marker, ncol = NCOL) %>%
+  adjust_size(width = PANEL_W, height = PANEL_H)
 save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_fold_change__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 p
 ```
 
 ## 3.3 log2 Fold change vs `r CTRL_LEVEL`
 
-```{r log2fc, fig.height=4, fig.width=20}
+```{r log2fc, fig.width=DIM["w"], fig.height=DIM["h"]}
 p <- df_long %>%
   filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
   tidyplot(x = .data[[X_VAR]], y = log2FC, color = .data[[COLOR_VAR]]) %>%
@@ -279,8 +305,8 @@ p <- df_long %>%
   adjust_title("<<Metric>> — log2 fold change vs control") %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("log2(FC) ± SD") %>%
-  split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40)
+  split_plot(by = marker, ncol = NCOL) %>%
+  adjust_size(width = PANEL_W, height = PANEL_H)
 save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_log2FC__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 p
 ```
