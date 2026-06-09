@@ -167,6 +167,13 @@ figure renders twice. Give each plot a short, unique name. Use the fold-change n
 join described there for FC/log2FC panels. Do **not** source `plotting_fxns.R` or set
 `theme_Publication()` — use tidyplots' default theme.
 
+Size figures from a single source of truth: set `PANEL_W`/`PANEL_H` (mm per panel) and `NCOL`
+in the setup chunk, feed them to `adjust_size(width = PANEL_W, height = PANEL_H)` and
+`split_plot(ncol = NCOL)`, and derive the chunk-header `fig.width`/`fig.height` (inches) from
+the same values via the `fig_dim()` helper (`fig.width=DIM["w"], fig.height=DIM["h"]`) so the
+PDF and the embedded HTML figure never drift. See "Figure sizing" in `plotting-patterns.md`.
+If the x-axis bars look cramped, increase `PANEL_W` — both outputs rescale together.
+
 ### 6. Write outputs and tell the user how to knit
 
 Emit long-format processed CSVs (`<measurements>_processed__<EXPERIMENT>.csv`) from a hidden

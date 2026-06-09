@@ -33,16 +33,51 @@ df %>%
   adjust_title("<Metric> — Raw") %>%
   adjust_x_axis_title("<x label>") %>%
   adjust_y_axis_title("<value> ± SD") %>%
-  split_plot(by = <marker>, ncol = N) %>%
-  adjust_size(width = 80, height = 40)
+  split_plot(by = <marker>, ncol = NCOL) %>%
+  adjust_size(width = PANEL_W, height = PANEL_H)
 save_plot(p, file.path(PLOT_DIR, paste0("<metric>_raw__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 p
 ```
 
 (assign the chain to `p` first — see "Exporting every plot to PDF" below.)
 
-`adjust_size` units are millimetres per panel; pair with chunk-header `fig.width`/`fig.height`
-(inches) for the HTML layout — roughly `fig.width ≈ 4 × ncol`, `fig.height ≈ 4 × nrow`.
+## Figure sizing — derive `fig.*` from the panel size
+
+`adjust_size()` units are **millimetres per panel** and they size the *PDF*. The chunk-header
+`fig.width`/`fig.height` are **inches** and size the *HTML* figure. These are two separate
+controls and will silently drift if you hardcode them independently (e.g. the same plot ending
+up taller in one tab than another). Instead, make the panel size the single source of truth and
+derive the chunk dims from it. In the setup chunk:
+
+```r
+PANEL_W <- 60    # per-panel width  (mm), fed to adjust_size(); bump if x-axis bars look cramped
+PANEL_H <- 40    # per-panel height (mm)
+NCOL    <- N     # facet columns; rows are derived from the panel count
+
+fig_dim <- function(n_panels, ncol = NCOL, w_mm = PANEL_W, h_mm = PANEL_H,
+                    legend_in = 1.3, title_in = 0.6,
+                    width_scale = 1.25, height_scale = 1.25) {
+  nrow <- ceiling(n_panels / ncol)
+  # mm -> inches (/25.4); pad width for the color legend and height for the title.
+  # width_scale / height_scale give the chunk device extra room so the HTML figure isn't
+  # squished relative to the plot's true size (panels + legend + axis titles).
+  c(w = (ncol * w_mm / 25.4 + legend_in) * width_scale,
+    h = (nrow * h_mm / 25.4 + title_in) * height_scale)
+}
+```
+
+`PANEL_W`/`PANEL_H` control the panel content density (raise if many x-axis categories crowd
+the bars); `width_scale`/`height_scale` control how much padding the chunk device gets around
+the rendered plot (raise if the HTML figure looks squished or the legend/axis is clipped).
+They are independent knobs — the panel dims change the PDF too, the scales only affect the HTML
+`fig.width`/`fig.height`.
+
+Compute the dims once per measurement family after the reshape (`DIM <- fig_dim(n_distinct(df$marker))`)
+and reference them in each plot chunk's header — `fig.width` and `fig.height` accept R
+expressions, so the header reads `{r raw, fig.width=DIM["w"], fig.height=DIM["h"]}`. Use the
+same `NCOL` in `split_plot(ncol = NCOL)` and `PANEL_W`/`PANEL_H` in `adjust_size()` so the PDF
+and the embedded HTML figure always rescale together when you change a panel size, the column
+count, or the number of markers.
 
 ## Exporting every plot to PDF
 
@@ -61,7 +96,7 @@ Then in each plot chunk, assign the finished chain to `p`, call `save_plot()` on
 `p` on its own line so knitr embeds it:
 
 ```r
-p <- df %>% tidyplot(...) %>% ... %>% adjust_size(width = 80, height = 40)
+p <- df %>% tidyplot(...) %>% ... %>% adjust_size(width = PANEL_W, height = PANEL_H)
 save_plot(p, file.path(PLOT_DIR, paste0("<name>__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 p
 ```
