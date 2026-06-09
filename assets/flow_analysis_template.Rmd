@@ -63,22 +63,17 @@ GEOMETRY     <- "bar"                            # "bar" (means) | "violin" | "b
 COLORS <- c(<<VLP = "#1b9e77", recomb = "#d95f02">>)  # named per COLOR_LEVELS
 
 # ── PDF export ────────────────────────────────────────────────────────────────
-# Every plot is written to PLOT_DIR as a PDF *and* shown in the report. Piping a
-# finished plot through save_and_show() saves it at the physical size set by
-# adjust_size() (tidyplots::save_plot honours that), then returns it so knitr still
-# embeds it in the HTML. Give each plot a short, unique, filename-safe name; the
-# EXPERIMENT slug is appended automatically so analyses never overwrite each other.
+# Every plot is written to PLOT_DIR as a PDF *and* shown in the report. In each plot
+# chunk: assign the finished plot to `p`, call save_plot() on it (which honours the
+# physical size set by adjust_size()), then put `p` on its own line so knitr embeds it.
+# IMPORTANT: pass view_plot = FALSE to save_plot(). It defaults to TRUE, whose final
+# print(input) draws the plot to the active device — knitr captures that AND auto-prints
+# the returned `p`, embedding every figure in the HTML twice. Give each plot a short,
+# unique, filename-safe name; append the EXPERIMENT slug so analyses never overwrite
+# each other, e.g.:
+#   save_plot(p, file.path(PLOT_DIR, paste0("<name>__", EXPERIMENT, ".pdf")), view_plot = FALSE)
 PLOT_DIR <- "plots"
 dir.create(PLOT_DIR, showWarnings = FALSE, recursive = TRUE)
-
-save_and_show <- function(p, name) {
-  fname <- paste0(name, "__", EXPERIMENT, ".pdf")
-  # view_plot = FALSE: only write the PDF. save_plot() defaults to view_plot = TRUE,
-  # whose final print(input) draws the plot to the active device — knitr captures that
-  # AND auto-prints the returned p, embedding every figure in the HTML twice.
-  tidyplots::save_plot(p, file.path(PLOT_DIR, fname), view_plot = FALSE)
-  p
-}
 ```
 
 ---
@@ -160,6 +155,31 @@ df_long <- meas_raw %>%
 # Keep gate_path / parent / grandparent in the final select() so they reach the
 # processed CSV and are available for parent/grandparent-population plots.
 
+# ── Pattern C: counts → absolute cell numbers (see flowjo-csv-format.md) ──
+# Counts exports carry a per-sample $VOL index column (µL acquired). Keep it OUT of the
+# pivot (rename to `vol`), then after the metadata join convert raw events to absolute
+# cell number with the volume calc. Plot/normalize abs_count, not the raw value.
+# CONFIRM THE VOLUME MAPPING WITH THE USER FIRST (SKILL.md step 3) — a mislabeled volume
+# produces plausible-looking but wrong absolute counts. Default meanings:
+#   $VOL               = acquired volume (volume the cytometer actually ran; from counts CSV)
+#   flow_vol           = volume resuspended for flow cytometry
+#   stained_sample_vol = volume of sample used for staining
+#   total_sample_vol   = volume entire sample is resuspended in
+# counts_long <- counts_raw %>%
+#   rename(plate = GROUPNAME, well = `$WELLID`, vol = `$VOL`) %>%
+#   select(-`Sample:`) %>%
+#   pivot_longer(-c(plate, well, vol), names_to = "col_name", values_to = "value",
+#                values_transform = list(value = as.character)) %>%
+#   mutate(value      = parse_num(value),
+#          marker     = str_trim(str_extract(col_name, "(?<=/)([^/|]+)(?=\\s*\\| Count)")),
+#          gate_path  = extract_gate(col_name),
+#          population = gate_level(gate_path, 1),   # leaf gate == counted population
+#          parent     = gate_level(gate_path, 2)) %>%
+#   filter(!is.na(marker)) %>%
+#   inner_join(metadata, by = c("plate", "well")) %>%
+#   mutate(abs_count = value * (flow_vol / vol) * (total_sample_vol / stained_sample_vol))
+# For counts sections, use y = abs_count in the plot chains below and key fold-change on it.
+
 df_long %>% count(marker) %>%
   kbl(caption = "Row counts per marker") %>%
   kable_styling(bootstrap_options = c("condensed", "hover"), full_width = FALSE)
@@ -216,7 +236,7 @@ add_geometry <- function(p) {
 ## 3.1 Raw
 
 ```{r raw, fig.height=4, fig.width=20}
-df_long %>%
+p <- df_long %>%
   tidyplot(x = .data[[X_VAR]], y = value, color = .data[[COLOR_VAR]]) %>%
   add_geometry() %>%
   adjust_colors(new_colors = COLORS) %>%
@@ -224,14 +244,15 @@ df_long %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("<<value>> ± SD") %>%
   split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40) %>%
-  save_and_show("<<metric>>_raw")
+  adjust_size(width = 80, height = 40)
+save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_raw__", EXPERIMENT, ".pdf")), view_plot = FALSE)
+p
 ```
 
 ## 3.2 Fold change vs `r CTRL_LEVEL`
 
 ```{r fc, fig.height=4, fig.width=20}
-df_long %>%
+p <- df_long %>%
   filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
   tidyplot(x = .data[[X_VAR]], y = fold_change, color = .data[[COLOR_VAR]]) %>%
   add_reference_lines(y = 1) %>%
@@ -241,14 +262,15 @@ df_long %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("Fold change ± SD") %>%
   split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40) %>%
-  save_and_show("<<metric>>_fold_change")
+  adjust_size(width = 80, height = 40)
+save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_fold_change__", EXPERIMENT, ".pdf")), view_plot = FALSE)
+p
 ```
 
 ## 3.3 log2 Fold change vs `r CTRL_LEVEL`
 
 ```{r log2fc, fig.height=4, fig.width=20}
-df_long %>%
+p <- df_long %>%
   filter(.data[[X_VAR]] != CTRL_LEVEL) %>%
   tidyplot(x = .data[[X_VAR]], y = log2FC, color = .data[[COLOR_VAR]]) %>%
   add_reference_lines(y = 0) %>%
@@ -258,8 +280,9 @@ df_long %>%
   adjust_x_axis_title("<<x label>>") %>%
   adjust_y_axis_title("log2(FC) ± SD") %>%
   split_plot(by = marker, ncol = <<N>>) %>%
-  adjust_size(width = 80, height = 40) %>%
-  save_and_show("<<metric>>_log2FC")
+  adjust_size(width = 80, height = 40)
+save_plot(p, file.path(PLOT_DIR, paste0("<<metric>>_log2FC__", EXPERIMENT, ".pdf")), view_plot = FALSE)
+p
 ```
 
 <!-- Duplicate section 3 for each additional measurement family. -->
